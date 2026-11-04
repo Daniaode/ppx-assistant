@@ -100,6 +100,8 @@ def main():
     ap.add_argument("--pattern", default="dd_classes*.dex.txt")
     ap.add_argument("--targets", default="tools/hook-targets.json")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="目标类/方法不存在时只警告不失败（适配版本差异）")
     args = ap.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.dump_dir, args.pattern)))
@@ -138,22 +140,38 @@ def main():
                 status = "missing-method"
                 found_desc = None
             else:
-                # 同名多签名时优先取已实现的那个
-                ranked = sorted(
-                    candidates,
-                    key=lambda x: 0 if classify(x[1]) == "implemented" else 1,
-                )
-                found_desc, rec = ranked[0]
-                status = classify(rec)
+                statuses = {classify(rec) for _d, rec in candidates}
+                if "implemented" in statuses and "noop" in statuses:
+                    # 同名多签名：可能钩中的是空实现那个
+                    status = "mixed"
+                elif "implemented" in statuses:
+                    status = "implemented"
+                elif "noop" in statuses:
+                    status = "noop"
+                else:
+                    status = sorted(statuses)[0]
+                found_desc = candidates[0][0]
 
         rows.append((cls, method, desc, status, expect, note))
 
         if expect == "missing":
             if status not in ("missing-class", "missing-method"):
                 failures.append(f"{cls}#{method}{desc}: 预期不存在，实际为 {status}")
-        else:
-            if status != expect:
+        elif status == expect:
+            pass
+        elif status in ("missing-class", "missing-method"):
+            # 自动提取的目标大多有 runCatching 兜底，随宿主版本变化属正常
+            if args.allow_missing or not t.get("strict", True):
+                warnings.append(f"{cls}#{method}{desc}: 当前版本不存在（已跳过）")
+            else:
                 failures.append(f"{cls}#{method}{desc}: 预期 {expect}，实际 {status}")
+        elif status == "mixed":
+            warnings.append(
+                f"{cls}#{method}{desc}: 同名重载中既有实现也有空方法，"
+                "按方法名 Hook 可能钩到空的那个，请显式传参数类型"
+            )
+        else:
+            failures.append(f"{cls}#{method}{desc}: 预期 {expect}，实际 {status}")
 
         # 预期实现却拿到空方法 -> 找出真正覆写的子类，给出可执行建议
         if expect == "implemented" and status == "noop":
@@ -177,7 +195,7 @@ def main():
             if expect == "missing":
                 ok = status in ("missing-class", "missing-method")
             else:
-                ok = status == expect
+                ok = status == expect or status in ("missing-class", "missing-method", "mixed")
             flag = "OK" if ok else "FAIL"
             print(f"{status:<14} {cls:<62} {method}{desc}  [{flag}]")
             if note:

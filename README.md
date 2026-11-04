@@ -142,18 +142,30 @@ Hook `MoneyExcitingService`：
 ### 1. Hook 目标静态校验（不需要真机）
 
 ```bash
-# 先用 dexdump 导出目标 APK 的 dump 到 /tmp
+# ① 从源码自动提取全部 Hook 目标
+python3 tools/extract-hooks.py --src app/src/main/java \
+    --out tools/hook-targets.generated.json
+
+# ② 提取结果全量校验（允许版本差异导致的缺失）
+python3 tools/verify-hooks.py --dump-dir /tmp \
+    --targets tools/hook-targets.generated.json --allow-missing
+
+# ③ 关键 Hook 严格校验（缺一个就失败）
 python3 tools/verify-hooks.py --dump-dir /tmp --targets tools/hook-targets.json
 ```
 
-它会检查 `tools/hook-targets.json` 里每个 Hook 目标：
+`extract-hooks.py` 会识别三种真实写法：
 
-- 类是否存在；
-- 方法是否存在；
-- 方法是否有真实实现（只有一条 `return-void` 的会被判为 `noop`）。
+- `"com.foo.Bar".hookAfterMethod(cl, "m", ...)`（String 扩展，方法名在第二个参数）
+- `"com.foo.Bar".findClass(cl).hookAfterMethod("m", ...)`
+- `"com.foo.Bar".findClass(cl).apply { hookAfterMethod("m") { } }`
+- 以及 `LIST.forEach { name -> name.findClass(...).hookAfterMethod(...) }` 这种列表遍历
 
-如果某个目标被判为 `noop`，脚本会顺带列出真正覆写它的子类——这正是
-`SnapPageScrollListener.a(int)` 那个坑的自动发现方式。
+`verify-hooks.py` 会检查：类是否存在、方法是否存在、方法是否有真实实现（只有一条
+`return-void` 的判为 `noop`），以及同名重载中是否存在「既实现又空方法」的歧义（`mixed`）。
+
+判为 `noop` 时会列出真正覆写它的子类——这正是 `SnapPageScrollListener.a(int)` 那个坑的
+自动发现方式。
 
 ### 2. 真机端到端测试（需要一台已 root 的设备）
 

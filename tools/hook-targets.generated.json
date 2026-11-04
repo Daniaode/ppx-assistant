@@ -1,0 +1,250 @@
+[
+  {
+    "class": "com.google.gson.Gson",
+    "method": "fromJson",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/InfoHook.kt:89"
+  },
+  {
+    "class": "com.ss.ttvideoengine.TTVideoEngine",
+    "method": "onCompletion",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:139"
+  },
+  {
+    "class": "com.sup.android.base.main.bottom.b",
+    "method": "a",
+    "desc": "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/HomeEntryHooks.kt:27"
+  },
+  {
+    "class": "com.sup.android.emoji.EmojiService",
+    "method": "collectEmoticon",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/EmojiHook.kt:14"
+  },
+  {
+    "class": "com.sup.android.emoji.EmojiService",
+    "method": "collectLocalEmoticon",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/EmojiHook.kt:25"
+  },
+  {
+    "class": "com.sup.android.m_comment.util.helper.a",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/ShareActionsHook.kt:24"
+  },
+  {
+    "class": "com.sup.android.m_comment.util.helper.j",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/ShareActionsHook.kt:25"
+  },
+  {
+    "class": "com.sup.android.m_comment.view.CommentAdapter",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/purity/AdHook.kt:42"
+  },
+  {
+    "class": "com.sup.android.m_comment.viewmodel.CommentListViewModel",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/purity/AdHook.kt:95"
+  },
+  {
+    "class": "com.sup.android.m_gallery.NewGalleryActivity",
+    "method": "onResume",
+    "desc": "()V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/QuickActionsHook.kt:26"
+  },
+  {
+    "class": "com.sup.android.m_integral.MoneyExcitingService",
+    "method": "init",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/AutoCoinHook.kt:25"
+  },
+  {
+    "class": "com.sup.android.m_integral.MoneyExcitingService",
+    "method": "notifySignInDialogFinish",
+    "desc": "()V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/AutoCoinHook.kt:48"
+  },
+  {
+    "class": "com.sup.android.m_mine.view.subview.MyProfileHeaderLayout",
+    "method": "a",
+    "desc": "(Z)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/purity/RedDotHook.kt:27"
+  },
+  {
+    "class": "com.sup.android.mi.feed.repo.bean.comment.Comment",
+    "method": "getSendGodStatus",
+    "desc": "()V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/SendGodHook.kt:11"
+  },
+  {
+    "class": "com.sup.android.mi.publish.bean.CommentBean",
+    "method": "setRealCommentId",
+    "desc": "(J)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/auto/CommentDiggHook.kt:13"
+  },
+  {
+    "class": "com.sup.android.mi.usercenter.model.UserInfo",
+    "method": "getAchievements",
+    "desc": "()V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/AchievementHook.kt:14"
+  },
+  {
+    "class": "com.sup.android.mi.usercenter.model.UserInfo",
+    "method": "getUserPrivilege",
+    "desc": "()V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/DanmakuHook.kt:25"
+  },
+  {
+    "class": "com.sup.android.module.feed.repo.FeedCellService",
+    "method": "diggCell",
+    "desc": "(JIZII)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/auto/CommonHook.kt:74"
+  },
+  {
+    "class": "com.sup.android.module.publish.publish.c",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/auto/WardHook.kt:34"
+  },
+  {
+    "class": "com.sup.android.social.base.settings.SettingService",
+    "method": "getValue",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/utils/Generic.kt:146"
+  },
+  {
+    "class": "com.sup.android.supvideoview.videoview.SupVideoView",
+    "method": "getPlayState",
+    "desc": "()V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/KeepSpeedHook.kt:16"
+  },
+  {
+    "class": "com.sup.android.ttvideoplayer.TTVideoEnginePlayer",
+    "method": "onCompletion",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:140"
+  },
+  {
+    "class": "com.sup.android.ttvideoplayer.TTVideoEnginePlayer",
+    "method": "setPlaySpeed",
+    "desc": "(F)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/PlaySpeedHook.kt:23"
+  },
+  {
+    "class": "com.sup.android.utils.cd",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/CommentColorHook.kt:14"
+  },
+  {
+    "class": "com.sup.android.utils.ce",
+    "method": "a",
+    "desc": "*",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/assist/CommentColorHook.kt:13"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.CardImmersiveFeedFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:114"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.CollectionFeedFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:114"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.ImmersiveFeedListFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:114"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.SecondaryImmersiveListFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:114"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.tabv2.FeedTabAdapterV2",
+    "method": "d",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookBeforeMethod @ app/src/main/java/com/akari/ppx/xp/hook/purity/CategoryHook.kt:43"
+  },
+  {
+    "class": "com.sup.superb.video.viewholder.a",
+    "method": "k_",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "strict": false,
+    "note": "hookAfterMethod @ app/src/main/java/com/akari/ppx/xp/hook/misc/BrowseHook.kt:89"
+  }
+]
