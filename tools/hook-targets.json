@@ -1,0 +1,93 @@
+[
+  {
+    "class": "com.sup.superb.feedui.view.SnapPageScrollListener",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "noop",
+    "note": "陷阱样本：基类翻页回调只有 return-void，钩它永远不会触发"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.ImmersiveFeedListFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "note": "视频页真正的翻页回调"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.CardImmersiveFeedFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "note": "卡片沉浸流翻页回调"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.SecondaryImmersiveListFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "note": "二级沉浸流翻页回调"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.CollectionFeedFragment$mPagerScrollListener$1",
+    "method": "a",
+    "desc": "(I)V",
+    "expect": "implemented",
+    "note": "合集沉浸流翻页回调"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.BaseFeedFragment",
+    "method": "l",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "取 RecyclerView 的唯一可靠入口（字段 f 在父类，子类 declaredField 取不到）"
+  },
+  {
+    "class": "com.sup.android.ttvideoplayer.TTVideoEnginePlayer",
+    "method": "onCompletion",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "播放结束回调；注意 onCompletion(boolean) 是拖动进度条的 Seek 回调"
+  },
+  {
+    "class": "com.sup.superb.video.viewholder.a",
+    "method": "k_",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "推荐页播放器状态回调（5 = 播放完成）"
+  },
+  {
+    "class": "com.sup.android.detail.ui.DetailPagerFragment",
+    "method": "onPageSelected",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "推荐页 ViewPager 翻页"
+  },
+  {
+    "class": "com.sup.android.m_integral.MoneyExcitingService",
+    "method": "acquireDailySignIn",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "每日签到"
+  },
+  {
+    "class": "com.sup.android.m_integral.MoneyExcitingService",
+    "method": "notifySignInDialogFinish",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "签到弹窗结束回调"
+  },
+  {
+    "class": "com.sup.android.m_integral.MoneyExcitingService",
+    "method": "tryStartWatchVideoTask",
+    "desc": "*",
+    "expect": "implemented",
+    "note": "看视频领奖任务"
+  },
+  {
+    "class": "com.sup.superb.feedui.view.ImmersiveFeedListFragment",
+    "method": "getCurShowCellPosition",
+    "desc": "*",
+    "expect": "missing",
+    "note": "仅存在于 Kotlin @Metadata 的 d2 数组，dex 中无此方法，反射调用会拿到 null；位置改用翻页回调记录"
+  }
+]

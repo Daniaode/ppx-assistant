@@ -135,6 +135,38 @@ Hook `MoneyExcitingService`：
 
 ---
 
+## 自动化校验
+
+仓库自带两个自动化脚本，避免再出现「钩了空方法却一直以为生效」这类问题。
+
+### 1. Hook 目标静态校验（不需要真机）
+
+```bash
+# 先用 dexdump 导出目标 APK 的 dump 到 /tmp
+python3 tools/verify-hooks.py --dump-dir /tmp --targets tools/hook-targets.json
+```
+
+它会检查 `tools/hook-targets.json` 里每个 Hook 目标：
+
+- 类是否存在；
+- 方法是否存在；
+- 方法是否有真实实现（只有一条 `return-void` 的会被判为 `noop`）。
+
+如果某个目标被判为 `noop`，脚本会顺带列出真正覆写它的子类——这正是
+`SnapPageScrollListener.a(int)` 那个坑的自动发现方式。
+
+### 2. 真机端到端测试（需要一台已 root 的设备）
+
+```bash
+adb connect <手机IP>:5555      # 或直接 USB 连接
+python3 tools/e2e-device-test.py --apk 皮友助手-0.0.17-适配6.6.1.apk --wait 30
+```
+
+脚本会自动：安装 → 强停 → 启动 → 切到「视频」页 → 采样界面文本 →
+对比内容指纹，判定是否真的自动翻页。输出 `PASS` / `FAIL`，可直接接 CI。
+
+---
+
 ## 说明
 
 - 本项目仅供学习与个人使用，请勿用于商业用途或二次倒卖。

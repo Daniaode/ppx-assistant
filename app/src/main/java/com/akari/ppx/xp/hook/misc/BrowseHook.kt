@@ -117,6 +117,7 @@ class BrowseHook : BaseHook {
                     val pos = param.args[0] as? Int ?: return@hookAfterMethod
                     val frag = outerFragment(param.thisObject) ?: return@hookAfterMethod
                     activeImmersive = frag
+                    activeImmersivePos = pos
                     if (!isAutoBrowse) return@hookAfterMethod
                     val rv = findRecyclerView(frag) ?: return@hookAfterMethod
                     val delay = if (pos <= 1) 1200L else browseFreq.toLong()
@@ -144,8 +145,10 @@ class BrowseHook : BaseHook {
                     if (now - lastAdvanceAt < 1200L) return@hookAfterMethod
                     lastAdvanceAt = now
                     val rv = findRecyclerView(frag) ?: return@hookAfterMethod
-                    val pos = frag.callMethodOrNullAs<Int>("getCurShowCellPosition")
-                        ?: return@hookAfterMethod
+                    // 位置用翻页回调里记录的值：getCurShowCellPosition 只存在于
+                    // Kotlin metadata，dex 里没有该方法，反射调用会直接拿到 null。
+                    val pos = activeImmersivePos
+                    if (pos < 0) return@hookAfterMethod
                     rv.post { advance(rv, pos) }
                 }
         }.onFailure { Log.e("BrowseHook completion: $it") }
@@ -250,6 +253,7 @@ class BrowseHook : BaseHook {
         var viewPager: Any? = null
         var isAuto = true
         private var activeImmersive: Fragment? = null
+        private var activeImmersivePos = -1
         private var lastAdvanceAt = 0L
 
         /** 各沉浸式信息流 Fragment 的翻页监听匿名类，均覆写了 a(int)。 */
