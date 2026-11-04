@@ -102,8 +102,11 @@ class BrowseHook : BaseHook {
         // 视频页（沉浸式信息流）：钩匿名监听器的 a(int) 覆写
         hookImmersive(isAutoBrowse, browseFreq)
 
-        // 视频页：播放结束立即切下一条
-        if (isDelayHandoff) hookPlayerCompletion()
+        // 视频页：跟踪当前沉浸页 + 播放结束立即切下一条（不做定时）
+        if (isDelayHandoff) {
+            hookImmersiveTracking()
+            hookPlayerCompletion()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -118,10 +121,7 @@ class BrowseHook : BaseHook {
                     val frag = outerFragment(param.thisObject) ?: return@hookAfterMethod
                     activeImmersive = frag
                     activeImmersivePos = pos
-                    if (!isAutoBrowse) return@hookAfterMethod
-                    val rv = findRecyclerView(frag) ?: return@hookAfterMethod
-                    val delay = if (pos <= 1) 1200L else browseFreq.toLong()
-                    rv.postDelayed({ advance(rv, pos) }, delay)
+                    // 视频页不做定时翻页：只在记录位置，切换由「播放完成」触发
                 }
             }.onFailure { Log.e("BrowseHook immersive [$name]: $it") }
         }
@@ -135,23 +135,50 @@ class BrowseHook : BaseHook {
      * onCompletion(TTVideoEngine)，内部判断 playbackState == 0 并置 isVideoCompleted。
      */
     private fun hookPlayerCompletion() {
+        // 1) 沉浸流播放器，实现 ISupPlayerListener，d() 就是播放完成回调
+        runCatching {
+            "com.sup.android.supvideoview.videoview.SupVideoView".findClass(cl)
+                .hookAfterMethod("d") {
+                    onPlayFinished()
+                }
+        }.onFailure { Log.e("BrowseHook SupVideoView.d: $it") }
+
+        // 2) 兜底：TTVideoEnginePlayer 的播放结束
         runCatching {
             val engineClass = "com.ss.ttvideoengine.TTVideoEngine".findClass(cl)
             "com.sup.android.ttvideoplayer.TTVideoEnginePlayer".findClass(cl)
                 .hookAfterMethod("onCompletion", engineClass) { _ ->
-                    val frag = activeImmersive ?: return@hookAfterMethod
-                    if (!isFragmentUsable(frag)) return@hookAfterMethod
-                    val now = System.currentTimeMillis()
-                    if (now - lastAdvanceAt < 1200L) return@hookAfterMethod
-                    lastAdvanceAt = now
-                    val rv = findRecyclerView(frag) ?: return@hookAfterMethod
-                    // 位置用翻页回调里记录的值：getCurShowCellPosition 只存在于
-                    // Kotlin metadata，dex 里没有该方法，反射调用会直接拿到 null。
-                    val pos = activeImmersivePos
-                    if (pos < 0) return@hookAfterMethod
-                    rv.post { advance(rv, pos) }
+                    onPlayFinished()
                 }
         }.onFailure { Log.e("BrowseHook completion: $it") }
+    }
+
+    /** 播放结束后翻到下一条：不依赖位置回调，直接整页滚动。 */
+    private fun onPlayFinished() {
+        val frag = activeImmersive ?: return
+        if (!isFragmentUsable(frag) || !frag.isResumed) return
+        val now = System.currentTimeMillis()
+        if (now - lastAdvanceAt < 1200L) return
+        lastAdvanceAt = now
+        val rv = findRecyclerView(frag) ?: return
+        if (rv.height <= 0) return
+        rv.post { runCatching { rv.smoothScrollBy(0, rv.height) } }
+    }
+
+    /** 用生命周期跟踪当前在前的沉浸页，不依赖翻页回调。 */
+    private fun hookImmersiveTracking() {
+        IMMERSIVE_FRAGMENTS.forEach { clsName ->
+            runCatching {
+                val cls = clsName.findClass(cl)
+                cls.hookAfterMethod("onViewCreated", View::class.java, Bundle::class.java) { param ->
+                    (param.thisObject as? Fragment)?.let { activeImmersive = it }
+                }
+                cls.hookBeforeMethod("onDestroyView") { param ->
+                    val owner = param.thisObject
+                    if (activeImmersive === owner) activeImmersive = null
+                }
+            }.onFailure { Log.e("BrowseHook tracking [$clsName]: $it") }
+        }
     }
 
     private fun isFragmentUsable(frag: Fragment): Boolean = runCatching {
@@ -262,6 +289,14 @@ class BrowseHook : BaseHook {
             "com.sup.superb.feedui.view.CardImmersiveFeedFragment\$mPagerScrollListener\$1",
             "com.sup.superb.feedui.view.SecondaryImmersiveListFragment\$mPagerScrollListener\$1",
             "com.sup.superb.feedui.view.CollectionFeedFragment\$mPagerScrollListener\$1"
+        )
+
+        /** 沉浸式信息流 Fragment 本体，用于跟踪当前可见页面。 */
+        private val IMMERSIVE_FRAGMENTS = listOf(
+            "com.sup.superb.feedui.view.ImmersiveFeedListFragment",
+            "com.sup.superb.feedui.view.CardImmersiveFeedFragment",
+            "com.sup.superb.feedui.view.SecondaryImmersiveListFragment",
+            "com.sup.superb.feedui.view.CollectionFeedFragment"
         )
     }
 }
