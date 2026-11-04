@@ -4,7 +4,10 @@ package com.akari.ppx.xp.hook.misc
 
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.RecyclerView
 import com.akari.ppx.data.XPrefs
 import com.akari.ppx.utils.*
 import com.akari.ppx.xp.Init.cl
@@ -12,12 +15,20 @@ import com.akari.ppx.xp.Init.detailPagerFragClass
 import com.akari.ppx.xp.hook.BaseHook
 
 /**
- * 自动刷视频：定时切换下一条 + 视频播放完再切换。
+ * 自动刷视频。
  *
- * 6.6.1 中 DetailPagerFragment 存在多个 ArrayList 字段（cachedCells 与 r），
- * 旧代码 `find { f.type == ArrayList::class.java }` 会取错字段导致 feedCell 为 null，
- * 提前 return 而不切换。这里改为：优先取泛型含 AbsFeedCell 的字段，兜底遍历全部
- * ArrayList 字段，并保证"定时切换"不依赖 feedCell（仅"播完再切"才需要判断帖子类型）。
+ * 两条链路要分开处理：
+ *  1. 推荐页 DetailPagerFragment —— ViewPager 翻页，钩 onPageSelected。
+ *  2. 视频页（沉浸式信息流）—— RecyclerView + VerticalImmersiveSnapHelper。
+ *
+ * 视频页的关键点（0.0.14/0.0.15 失效的真正原因）：
+ * 它的翻页回调是 SnapPageScrollListener.a(int)，但基类里那个方法是**空方法**，
+ * 真正实现被匿名内部类 ImmersiveFeedListFragment$mPagerScrollListener$1 覆写。
+ * 钩基类只会得到一个永远不会被调用的方法，所以必须钩匿名子类。
+ *
+ * 另外 RecyclerView 不能用 getDeclaredField("f") 取：f 声明在父类
+ * BaseFeedFragment 上，子类 declaredFields 里没有。这里统一走
+ * BaseFeedFragment.l()（public final ObservableRecyclerView l()）。
  */
 class BrowseHook : BaseHook {
     override fun onHook() {
@@ -26,9 +37,10 @@ class BrowseHook : BaseHook {
         val browseFreq: Int = XPrefs<String>("auto_browse_frequency").let {
             it.toIntOrNull() ?: 3000
         }
+        val anyEnabled = isAutoBrowse || isDelayHandoff
 
-        // viewPager 捕获：自动刷视频/播完再切任一开启就捕获，否则单独开"播完再切"时 viewPager 为 null
-        (isAutoBrowse || isDelayHandoff).check(true) {
+        // 推荐页 viewPager 捕获：任一功能开启就捕获
+        anyEnabled.check(true) {
             detailPagerFragClass?.hookAfterMethod(
                 "onCreateView",
                 LayoutInflater::class.java,
@@ -43,18 +55,16 @@ class BrowseHook : BaseHook {
             }
         }
 
+        // 推荐页：定时切换下一条
         isAutoBrowse.check(true) {
-            // 定时自动切换下一条
             detailPagerFragClass?.hookAfterMethod("onPageSelected", Int::class.java) { param ->
                 if (!isAuto) {
                     isAuto = true
                     return@hookAfterMethod
                 }
-                // 每次页面切换都从实例直接刷新 viewPager（不依赖 onCreateView 捕获时机）
                 refreshViewPager(param.thisObject)
                 val position = param.args[0] as Int
                 val shouldSwitch = if (isDelayHandoff) {
-                    // 播完再切：仅对"图文/笔记"类帖子按定时切换；视频交给播放完成回调
                     val feedCell = findFeedCell(param.thisObject, position)
                     feedCell != null && "com.sup.android.mi.feed.repo.bean.cell.NoteFeedItem"
                         .findClass(cl)
@@ -63,8 +73,8 @@ class BrowseHook : BaseHook {
                     true
                 }
                 if (shouldSwitch) {
-                    // 关键：View.postDelayed(Runnable, long) 第二个参数必须是 Long，
-                    // 传 Int 会导致 findMethod 找不到方法而静默失败（长期不生效的根因）
+                    // View.postDelayed(Runnable, long) 第二个参数必须是 Long，
+                    // 传 Int 会找不到方法而静默失败。
                     viewPager?.callMethod("postDelayed", object : Runnable {
                         override fun run() {
                             switchToNext()
@@ -74,11 +84,11 @@ class BrowseHook : BaseHook {
             }
         }
 
-        // 视频播放完再切换
+        // 推荐页：视频播放完再切换
         isDelayHandoff.check(true) {
             val videoHolderClass = "com.sup.superb.video.viewholder.a".findClass(cl)
             videoHolderClass.hookAfterMethod("k_", Int::class.java) { param ->
-                // k_(int) = onPlayerStateChanged，5 = 播放完成；不再依赖 getCellType（该值不一定是 1）
+                // k_(int) = onPlayerStateChanged，5 = 播放完成
                 if (5 == param.args[0] as Int) {
                     viewPager?.callMethod("postDelayed", object : Runnable {
                         override fun run() {
@@ -89,42 +99,122 @@ class BrowseHook : BaseHook {
             }
         }
 
-        // 「视频」页：ImmersiveFeedListFragment 用 RecyclerView 纵向翻页，
-        // 翻页回调 SnapPageScrollListener.a(int)，翻页时滚动 RecyclerView 到下一条。
-        isAutoBrowse.check(true) {
+        // 视频页（沉浸式信息流）：钩匿名监听器的 a(int) 覆写
+        hookImmersive(isAutoBrowse, browseFreq)
+
+        // 视频页：播放结束立即切下一条
+        if (isDelayHandoff) hookPlayerCompletion()
+    }
+
+    // ------------------------------------------------------------------
+    // 沉浸式视频流（视频 Tab）
+    // ------------------------------------------------------------------
+
+    private fun hookImmersive(isAutoBrowse: Boolean, browseFreq: Int) {
+        IMMERSIVE_LISTENERS.forEach { name ->
             runCatching {
-                "com.sup.superb.feedui.view.SnapPageScrollListener".findClass(cl)
-                    .hookAfterMethod("a", Int::class.javaPrimitiveType) { param ->
-                        if (!isAuto) {
-                            isAuto = true
-                            return@hookAfterMethod
-                        }
-                        val pos = param.args[0] as Int
-                        val listener = param.thisObject
-                        // 匿名内部类字段里找外部 Fragment 引用
-                        val frag = runCatching {
-                            listener.javaClass.declaredFields.firstNotNullOfOrNull { f ->
-                                f.isAccessible = true
-                                f.get(listener) as? androidx.fragment.app.Fragment
-                            }
-                        }.getOrNull() ?: return@hookAfterMethod
-                        if (!frag.javaClass.name.contains("ImmersiveFeedListFragment")) return@hookAfterMethod
-                        // RecyclerView 是 BaseFeedFragment 的字段 f (mainRecyclerView)，
-                        // l() 取不到（不存在/不可见），这才是之前没生效的原因
-                        val rv = (frag.getObjectFieldOrNull("f")
-                            ?: frag.callMethodOrNull("getMainRecyclerView")) as? androidx.recyclerview.widget.RecyclerView
-                            ?: return@hookAfterMethod
-                        rv.postDelayed(object : Runnable {
-                            override fun run() {
-                                runCatching { rv.smoothScrollToPosition(pos + 1) }
-                            }
-                        }, browseFreq.toLong())
-                    }
-            }.onFailure { Log.e("BrowseHook immersive: $it") }
+                name.findClass(cl).hookAfterMethod("a", Int::class.javaPrimitiveType) { param ->
+                    val pos = param.args[0] as? Int ?: return@hookAfterMethod
+                    val frag = outerFragment(param.thisObject) ?: return@hookAfterMethod
+                    activeImmersive = frag
+                    if (!isAutoBrowse) return@hookAfterMethod
+                    val rv = findRecyclerView(frag) ?: return@hookAfterMethod
+                    val delay = if (pos <= 1) 1200L else browseFreq.toLong()
+                    rv.postDelayed({ advance(rv, pos) }, delay)
+                }
+            }.onFailure { Log.e("BrowseHook immersive [$name]: $it") }
         }
     }
 
-    /** 从 Fragment 实例直接找到 SwipeControlledViewPager 字段并刷新全局引用。 */
+    /**
+     * 播放结束回调。
+     *
+     * 注意：TTVideoEnginePlayer.onCompletion(boolean) 是 SeekCompletionListener，
+     * 拖动进度条就会触发，**不是**播放结束。真正的播放结束是
+     * onCompletion(TTVideoEngine)，内部判断 playbackState == 0 并置 isVideoCompleted。
+     */
+    private fun hookPlayerCompletion() {
+        runCatching {
+            val engineClass = "com.ss.ttvideoengine.TTVideoEngine".findClass(cl)
+            "com.sup.android.ttvideoplayer.TTVideoEnginePlayer".findClass(cl)
+                .hookAfterMethod("onCompletion", engineClass) { _ ->
+                    val frag = activeImmersive ?: return@hookAfterMethod
+                    if (!isFragmentUsable(frag)) return@hookAfterMethod
+                    val now = System.currentTimeMillis()
+                    if (now - lastAdvanceAt < 1200L) return@hookAfterMethod
+                    lastAdvanceAt = now
+                    val rv = findRecyclerView(frag) ?: return@hookAfterMethod
+                    val pos = frag.callMethodOrNullAs<Int>("getCurShowCellPosition")
+                        ?: return@hookAfterMethod
+                    rv.post { advance(rv, pos) }
+                }
+        }.onFailure { Log.e("BrowseHook completion: $it") }
+    }
+
+    private fun isFragmentUsable(frag: Fragment): Boolean = runCatching {
+        frag.isAdded && !frag.isDetached && frag.view != null
+    }.getOrDefault(false)
+
+    /** 匿名内部类里持有的外部 Fragment 引用（Immersive 的字段名是 b）。 */
+    private fun outerFragment(listener: Any): Fragment? = runCatching {
+        listener.javaClass.declaredFields.firstNotNullOfOrNull { f ->
+            if (java.lang.reflect.Modifier.isStatic(f.modifiers)) return@firstNotNullOfOrNull null
+            f.isAccessible = true
+            f.get(listener) as? Fragment
+        }
+    }.getOrNull()
+
+    /**
+     * 稳健获取列表 RecyclerView：
+     * BaseFeedFragment.l() 是 public final，最可靠；
+     * 再兜底 getMainRecyclerView / 继承链字段 f / 视图树。
+     */
+    private fun findRecyclerView(frag: Any): RecyclerView? {
+        (frag.callMethodOrNull("l") as? RecyclerView)?.let { return it }
+        (frag.callMethodOrNull("getMainRecyclerView") as? RecyclerView)?.let { return it }
+        var c: Class<*>? = frag.javaClass
+        while (c != null && c != Any::class.java) {
+            val hit = runCatching {
+                c!!.declaredFields.firstOrNull { it.name == "f" }?.let { f ->
+                    f.isAccessible = true
+                    f.get(frag) as? RecyclerView
+                }
+            }.getOrNull()
+            if (hit != null) return hit
+            c = c.superclass
+        }
+        (frag.callMethodOrNull("getView") as? ViewGroup)?.let { return findRecyclerIn(it) }
+        return null
+    }
+
+    private fun findRecyclerIn(v: View): RecyclerView? {
+        if (v is RecyclerView) return v
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) {
+                findRecyclerIn(v.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** 滚到下一条；若 smoothScrollToPosition 没把目标项带进来，退化为整页滚动。 */
+    private fun advance(rv: RecyclerView, pos: Int) {
+        val count = rv.adapter?.itemCount ?: return
+        val target = pos + 1
+        if (target <= 0 || target >= count) return
+        runCatching { rv.smoothScrollToPosition(target) }
+        rv.postDelayed({
+            val lm = rv.layoutManager
+            if (lm != null && lm.findViewByPosition(target) == null) {
+                runCatching { rv.smoothScrollBy(0, rv.height.coerceAtLeast(1)) }
+            }
+        }, 800L)
+    }
+
+    // ------------------------------------------------------------------
+    // 推荐页辅助
+    // ------------------------------------------------------------------
+
     private fun refreshViewPager(owner: Any) {
         runCatching {
             owner.javaClass.declaredFields.firstOrNull { f ->
@@ -135,7 +225,6 @@ class BrowseHook : BaseHook {
 
     private fun findFeedCell(owner: Any, index: Int): Any? {
         val fields = owner.javaClass.declaredFields.filter { it.type == ArrayList::class.java }
-        // 优先取泛型含 AbsFeedCell 的字段
         val preferred = fields.firstOrNull { f ->
             runCatching { f.genericType.typeName.contains("AbsFeedCell") }.getOrDefault(false)
         } ?: fields.firstOrNull()
@@ -160,5 +249,15 @@ class BrowseHook : BaseHook {
     companion object {
         var viewPager: Any? = null
         var isAuto = true
+        private var activeImmersive: Fragment? = null
+        private var lastAdvanceAt = 0L
+
+        /** 各沉浸式信息流 Fragment 的翻页监听匿名类，均覆写了 a(int)。 */
+        private val IMMERSIVE_LISTENERS = listOf(
+            "com.sup.superb.feedui.view.ImmersiveFeedListFragment\$mPagerScrollListener\$1",
+            "com.sup.superb.feedui.view.CardImmersiveFeedFragment\$mPagerScrollListener\$1",
+            "com.sup.superb.feedui.view.SecondaryImmersiveListFragment\$mPagerScrollListener\$1",
+            "com.sup.superb.feedui.view.CollectionFeedFragment\$mPagerScrollListener\$1"
+        )
     }
 }
