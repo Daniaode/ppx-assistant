@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.akari.ppx.data.XPrefs
 import com.akari.ppx.utils.*
+import com.akari.ppx.BuildConfig
 import com.akari.ppx.xp.Init.cl
 import com.akari.ppx.xp.Init.detailPagerFragClass
 import com.akari.ppx.xp.hook.BaseHook
@@ -47,7 +48,7 @@ class BrowseHook : BaseHook {
         }
         val anyEnabled = isAutoBrowse || isDelayHandoff
 
-        xlog("init auto=$isAutoBrowse delay=$isDelayHandoff freq=$browseFreq")
+        xlog("init v=${BuildConfig.VERSION_NAME} auto=$isAutoBrowse delay=$isDelayHandoff freq=$browseFreq")
 
         // 推荐页 viewPager 捕获
         anyEnabled.check(true) {
@@ -108,8 +109,29 @@ class BrowseHook : BaseHook {
 
         if (anyEnabled) {
             hookImmersiveTracking()
+            hookFeedRecycler()
             hookSupVideoView()
         }
+    }
+
+    /**
+     * 直接让宿主把列表交出来。
+     * BaseFeedFragment.l() 是 public final，宿主内部到处在用；
+     * 钩它就能稳定拿到各个 feed 的 RecyclerView，不依赖 View 树猜测。
+     */
+    private fun hookFeedRecycler() {
+        runCatching {
+            "com.sup.superb.feedui.view.BaseFeedFragment".findClass(cl)
+                .hookAfterMethod("l") { param ->
+                    val rv = param.result as? RecyclerView ?: return@hookAfterMethod
+                    feedRecycler = rv
+                    if (!loggedRecycler) {
+                        loggedRecycler = true
+                        xlog("captured feed RecyclerView ${rv.width}x${rv.height}")
+                    }
+                }
+            xlog("BaseFeedFragment.l hooked")
+        }.onFailure { xlog("BaseFeedFragment.l failed: $it") }
     }
 
     /** 生命周期跟踪沉浸页，作为找不到祖先列表时的兼底。 */
@@ -156,11 +178,13 @@ class BrowseHook : BaseHook {
      * 从播放器控件沿 View 树向上找 RecyclerView，找不到再退回跟踪到的 Fragment。
      */
     private fun advanceFrom(source: Any?, tag: String) {
-        val srcView = source as? View
-        val rv = srcView?.let { findTargetRecycler(it) }
+        val rv = (source as? View)?.let { findAncestorRecycler(it) }
+            ?: feedRecycler?.takeIf { it.isShown }
             ?: activeImmersive?.let { findRecyclerView(it) }
+            ?: (source as? View)?.let { findTargetRecycler(it) }
         if (rv == null) {
-            xlog("advance[$tag]: no RecyclerView (source=${source?.javaClass?.simpleName})")
+            xlog("advance[$tag]: no RecyclerView (src=${source?.javaClass?.simpleName}," +
+                "feed=${feedRecycler != null}, frag=${activeImmersive != null})")
             return
         }
         val now = System.currentTimeMillis()
@@ -319,6 +343,8 @@ class BrowseHook : BaseHook {
         var isAuto = true
         private var activeImmersive: Fragment? = null
         private var currentVideoView: Any? = null
+        private var feedRecycler: RecyclerView? = null
+        private var loggedRecycler = false
         private var lastAdvanceAt = 0L
 
         private val IMMERSIVE_FRAGMENTS = listOf(
