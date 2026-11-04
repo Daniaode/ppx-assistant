@@ -178,10 +178,15 @@ class BrowseHook : BaseHook {
      * 从播放器控件沿 View 树向上找 RecyclerView，找不到再退回跟踪到的 Fragment。
      */
     private fun advanceFrom(source: Any?, tag: String) {
-        val rv = (source as? View)?.let { findAncestorRecycler(it) }
+        val srcView = source as? View
+        if (srcView != null) {
+            dumpScene(srcView, tag)
+            if (tryPagerAdvance(srcView)) return
+        }
+        val rv = srcView?.let { findAncestorRecycler(it) }
             ?: feedRecycler?.takeIf { it.isShown }
             ?: activeImmersive?.let { findRecyclerView(it) }
-            ?: (source as? View)?.let { findTargetRecycler(it) }
+            ?: srcView?.let { findTargetRecycler(it) }
         if (rv == null) {
             xlog("advance[$tag]: no RecyclerView (src=${source?.javaClass?.simpleName}," +
                 "feed=${feedRecycler != null}, frag=${activeImmersive != null})")
@@ -195,6 +200,63 @@ class BrowseHook : BaseHook {
         lastAdvanceAt = now
         xlog("advance[$tag]: rv h=${rv.height} pos=${firstVisible(rv)}")
         swipeUp(rv)
+    }
+
+    /** 打印现场：View 链 + 根视图 + 所在 Activity，用于定位到底是哪个页面。 */
+    private fun dumpScene(v: View, tag: String) {
+        if (sceneLogged) return
+        sceneLogged = true
+        runCatching {
+            val sb = StringBuilder()
+            var p: ViewParent? = v.parent
+            var i = 0
+            while (p != null && i++ < 12) {
+                sb.append(p.javaClass.name)
+                if (i < 12 && p.parent != null) sb.append(" <- ")
+                p = p.parent
+            }
+            xlog("scene[$tag] chain: $sb")
+            val root = v.rootView
+            xlog("scene[$tag] root=${root.javaClass.name} children=" +
+                ((root as? ViewGroup)?.childCount ?: -1))
+            var ctx: android.content.Context? = v.context
+            var guard = 0
+            while (ctx is android.content.ContextWrapper && guard++ < 10) {
+                if (ctx is android.app.Activity) break
+                ctx = ctx.baseContext
+            }
+            xlog("scene[$tag] activity=${ctx?.javaClass?.name}")
+        }
+    }
+
+    /** View 链里有 ViewPager 就直接翻页（详情页类页面常用）。 */
+    private fun tryPagerAdvance(v: View): Boolean {
+        var p: ViewParent? = v.parent
+        var i = 0
+        while (p != null && i++ < 15) {
+            val name = p.javaClass.name
+            if (name.contains("ViewPager")) {
+                val cur = runCatching {
+                    p!!.javaClass.getMethod("getCurrentItem").invoke(p) as Int
+                }.getOrNull()
+                if (cur != null) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastAdvanceAt >= 1_500L) {
+                        lastAdvanceAt = now
+                        runCatching {
+                            p!!.javaClass.getMethod("setCurrentItem", Int::class.javaPrimitiveType)
+                                .invoke(p, cur + 1)
+                        }
+                        xlog("pager advance $name $cur -> ${cur + 1}")
+                    } else {
+                        xlog("pager advance debounced")
+                    }
+                    return true
+                }
+            }
+            p = p.parent
+        }
+        return false
     }
 
     /**
@@ -345,6 +407,7 @@ class BrowseHook : BaseHook {
         private var currentVideoView: Any? = null
         private var feedRecycler: RecyclerView? = null
         private var loggedRecycler = false
+        private var sceneLogged = false
         private var lastAdvanceAt = 0L
 
         private val IMMERSIVE_FRAGMENTS = listOf(
