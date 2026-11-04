@@ -106,7 +106,26 @@ class BrowseHook : BaseHook {
             }
         }
 
-        if (anyEnabled) hookSupVideoView()
+        if (anyEnabled) {
+            hookImmersiveTracking()
+            hookSupVideoView()
+        }
+    }
+
+    /** 生命周期跟踪沉浸页，作为找不到祖先列表时的兼底。 */
+    private fun hookImmersiveTracking() {
+        IMMERSIVE_FRAGMENTS.forEach { clsName ->
+            runCatching {
+                val cls = clsName.findClass(cl)
+                cls.hookAfterMethod("onViewCreated", View::class.java, Bundle::class.java) { param ->
+                    (param.thisObject as? Fragment)?.let { activeImmersive = it }
+                }
+                cls.hookBeforeMethod("onDestroyView") { param ->
+                    val owner = param.thisObject
+                    if (activeImmersive === owner) activeImmersive = null
+                }
+            }.onFailure { xlog("tracking[$clsName] failed: $it") }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -137,7 +156,8 @@ class BrowseHook : BaseHook {
      * 从播放器控件沿 View 树向上找 RecyclerView，找不到再退回跟踪到的 Fragment。
      */
     private fun advanceFrom(source: Any?, tag: String) {
-        val rv = (source as? View)?.let { findAncestorRecycler(it) }
+        val srcView = source as? View
+        val rv = srcView?.let { findTargetRecycler(it) }
             ?: activeImmersive?.let { findRecyclerView(it) }
         if (rv == null) {
             xlog("advance[$tag]: no RecyclerView (source=${source?.javaClass?.simpleName})")
@@ -151,6 +171,29 @@ class BrowseHook : BaseHook {
         lastAdvanceAt = now
         xlog("advance[$tag]: rv h=${rv.height} pos=${firstVisible(rv)}")
         swipeUp(rv)
+    }
+
+    /**
+     * 视频控件未必在 RecyclerView 的子树里（可能挂在独立覆盖层）。
+     * 先向上找祖先；找不到就从根视图向下枚举，取可见且面积最大的那个（视频页列表是全屏）。
+     */
+    private fun findTargetRecycler(v: View): RecyclerView? {
+        findAncestorRecycler(v)?.let { return it }
+        val candidates = ArrayList<RecyclerView>()
+        runCatching { collectRecyclers(v.rootView, candidates) }
+        val usable = candidates.filter {
+            it.isShown && it.height > 0 && (it.adapter?.itemCount ?: 0) > 1
+        }
+        if (usable.isEmpty()) return null
+        xlog("rv candidates=${usable.size} sizes=" + usable.joinToString { "${it.width}x${it.height}" })
+        return usable.maxByOrNull { it.width.toLong() * it.height }
+    }
+
+    private fun collectRecyclers(v: View, out: MutableList<RecyclerView>) {
+        if (v is RecyclerView) out.add(v)
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) collectRecyclers(v.getChildAt(i), out)
+        }
     }
 
     private fun findAncestorRecycler(v: View): RecyclerView? {
@@ -277,5 +320,12 @@ class BrowseHook : BaseHook {
         private var activeImmersive: Fragment? = null
         private var currentVideoView: Any? = null
         private var lastAdvanceAt = 0L
+
+        private val IMMERSIVE_FRAGMENTS = listOf(
+            "com.sup.superb.feedui.view.ImmersiveFeedListFragment",
+            "com.sup.superb.feedui.view.CardImmersiveFeedFragment",
+            "com.sup.superb.feedui.view.SecondaryImmersiveListFragment",
+            "com.sup.superb.feedui.view.CollectionFeedFragment"
+        )
     }
 }
