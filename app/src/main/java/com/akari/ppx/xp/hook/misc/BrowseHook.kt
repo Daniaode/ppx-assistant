@@ -3,20 +3,15 @@
 package com.akari.ppx.xp.hook.misc
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewParent
-import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import com.akari.ppx.BuildConfig
 import com.akari.ppx.data.XPrefs
 import com.akari.ppx.utils.*
-import com.akari.ppx.BuildConfig
 import com.akari.ppx.xp.Init.cl
 import com.akari.ppx.xp.Init.detailPagerFragClass
 import com.akari.ppx.xp.hook.BaseHook
@@ -26,18 +21,19 @@ import de.robv.android.xposed.XposedBridge
  * 自动刷视频。
  *
  * 推荐页：DetailPagerFragment + ViewPager（原逻辑，未改动）。
- * 视频页：ImmersiveFeedListFragment + RecyclerView（竖向翻页）。
+ * 视频页：ImmersiveFeedListFragment，纵向列表是 GestureObservableRecyclerView。
  *
- * 视频页已确认的事实：
- *  1. SupVideoView.d()（ISupPlayerListener 播放完成）**会触发**——
- *     应用日志同一时刻出现 ImmersiveVideoGoldBusinessComponent newState=5。
- *  2. 之前切不动的原因：依赖 activeImmersive（由生命周期跟踪赋值）拿目标列表，
- *     跟踪没命中就直接静默返回。
- *     本版改为**从 SupVideoView 自身沿 View 树向上找 RecyclerView**，不依赖任何跟踪。
- *  3. 这类沉浸流用自定义 SnapHelper，直接调滚动方法不可靠，
- *     改为注入真实触摸事件（DOWN -> MOVE -> UP）。
+ * ★ 关键教训（0.0.14 ~ 0.0.25 全部失败的真正原因）：
+ * 模块 dex 里自带了一份 androidx 类（R8 保留），与宿主 App 的是**不同 ClassLoader
+ * 加载的同名类**。因此模块代码里：
+ *   `obj is androidx.recyclerview.widget.RecyclerView` → false
+ *   `obj as? androidx.fragment.app.Fragment`          → null
+ * 而 `obj as? android.view.View` 永远正常（View 是启动类，全进程共享）。
  *
- * 日志同时写 android.util.Log 与 XposedBridge，避免单一 sink 丢日志。
+ * 所以本文件**不使用任何 androidx 类型**：
+ *   - 判断列表：沿继承链比对类名 "androidx.recyclerview.widget.RecyclerView"
+ *   - 列表相关方法（smoothScrollBy / layoutManager）走反射
+ *   - Fragment 相关一律反射（isResumed / view）
  */
 class BrowseHook : BaseHook {
     override fun onHook() {
@@ -50,7 +46,6 @@ class BrowseHook : BaseHook {
 
         xlog("init v=${BuildConfig.VERSION_NAME} auto=$isAutoBrowse delay=$isDelayHandoff freq=$browseFreq")
 
-        // 推荐页 viewPager 捕获
         anyEnabled.check(true) {
             detailPagerFragClass?.hookAfterMethod(
                 "onCreateView",
@@ -66,7 +61,7 @@ class BrowseHook : BaseHook {
             }
         }
 
-        // 推荐页：定时切换下一条（原功能，未改动）
+        // 推荐页：定时切换下一条（原功能，不改动）
         isAutoBrowse.check(true) {
             detailPagerFragClass?.hookAfterMethod("onPageSelected", Int::class.java) { param ->
                 if (!isAuto) {
@@ -93,7 +88,7 @@ class BrowseHook : BaseHook {
             }
         }
 
-        // 推荐页：视频播放完再切换（原功能，未改动）
+        // 推荐页：视频播放完再切换（原功能，不改动）
         isDelayHandoff.check(true) {
             val videoHolderClass = "com.sup.superb.video.viewholder.a".findClass(cl)
             videoHolderClass.hookAfterMethod("k_", Int::class.java) { param ->
@@ -114,58 +109,54 @@ class BrowseHook : BaseHook {
         }
     }
 
-    /**
-     * 直接让宿主把列表交出来。
-     * BaseFeedFragment.l() 是 public final，宿主内部到处在用；
-     * 钩它就能稳定拿到各个 feed 的 RecyclerView，不依赖 View 树猜测。
-     */
+    // ------------------------------------------------------------------
+    // 视频页
+    // ------------------------------------------------------------------
+
+    /** 记录沉浸页实例（用 Any，避免 androidx Fragment 的类型不认问题）。 */
+    private fun hookImmersiveTracking() {
+        IMMERSIVE_FRAGMENTS.forEach { clsName ->
+            runCatching {
+                val cls = clsName.findClass(cl)
+                cls.hookAfterMethod("onViewCreated", View::class.java, Bundle::class.java) { param ->
+                    activeImmersive = param.thisObject
+                }
+                cls.hookBeforeMethod("onDestroyView") { param ->
+                    if (activeImmersive === param.thisObject) activeImmersive = null
+                }
+            }.onFailure { xlog("tracking[$clsName] failed: $it") }
+        }
+    }
+
+    /** 直接捕获 BaseFeedFragment.l() 返回的列表（同样用 Any + 反射）。 */
     private fun hookFeedRecycler() {
         runCatching {
             "com.sup.superb.feedui.view.BaseFeedFragment".findClass(cl)
                 .hookAfterMethod("l") { param ->
-                    val rv = param.result as? RecyclerView ?: return@hookAfterMethod
-                    feedRecycler = rv
+                    val result = param.result
+                    if (!isRecycler(result)) return@hookAfterMethod
+                    feedRecycler = result
                     if (!loggedRecycler) {
                         loggedRecycler = true
-                        xlog("captured feed RecyclerView ${rv.width}x${rv.height}")
+                        val w = result.callMethodOrNullAs<Int>("getWidth") ?: -1
+                        val h = result.callMethodOrNullAs<Int>("getHeight") ?: -1
+                        xlog("captured feed RecyclerView ${w}x$h (${result?.javaClass?.name})")
                     }
                 }
             xlog("BaseFeedFragment.l hooked")
         }.onFailure { xlog("BaseFeedFragment.l failed: $it") }
     }
 
-    /** 生命周期跟踪沉浸页，作为找不到祖先列表时的兼底。 */
-    private fun hookImmersiveTracking() {
-        IMMERSIVE_FRAGMENTS.forEach { clsName ->
-            runCatching {
-                val cls = clsName.findClass(cl)
-                cls.hookAfterMethod("onViewCreated", View::class.java, Bundle::class.java) { param ->
-                    (param.thisObject as? Fragment)?.let { activeImmersive = it }
-                }
-                cls.hookBeforeMethod("onDestroyView") { param ->
-                    val owner = param.thisObject
-                    if (activeImmersive === owner) activeImmersive = null
-                }
-            }.onFailure { xlog("tracking[$clsName] failed: $it") }
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // 视频页：播放完成 -> 上滑
-    // ------------------------------------------------------------------
-
     private fun hookSupVideoView() {
         val name = "com.sup.android.supvideoview.videoview.SupVideoView"
         runCatching {
             val cls = name.findClass(cl)
-            // 播放完成回调：来源就是正在播放的控件，可直接沿 View 树找到列表
             cls.hookAfterMethod("d") { param ->
                 val self = param.thisObject
                 currentVideoView = self
                 xlog("SupVideoView.d fired")
                 advanceFrom(self, "d()")
             }
-            // 起播/seek 时记录实例，供位置轮询使用
             cls.declaredMethods
                 .filter { it.name == "a" && it.parameterTypes.isNotEmpty() }
                 .filter { it.parameterTypes[0] == java.lang.Long.TYPE }
@@ -174,20 +165,16 @@ class BrowseHook : BaseHook {
         }.onFailure { xlog("SupVideoView hook failed: $it") }
     }
 
-    /**
-     * 从播放器控件沿 View 树向上找 RecyclerView，找不到再退回跟踪到的 Fragment。
-     */
     private fun advanceFrom(source: Any?, tag: String) {
         val srcView = source as? View
         if (srcView != null) dumpScene(srcView, tag)
 
-        // 纵向列表优先。画面里本来就是 GestureObservableRecyclerView（继承 RecyclerView），
-        // 不能先判 ViewPager —— 外层 DisableGutterViewPager 是横向翻页的，先命中它就会横向切（0.0.24 的错）。
+        // 纵向列表优先；横向 ViewPager 一律不用（会导致横着切）
         var via = "ancestor"
         var rv = srcView?.let { findAncestorRecycler(it) }
         if (rv == null) {
             via = "feed"
-            rv = feedRecycler?.takeIf { it.isShown }
+            rv = feedRecycler?.takeIf { isShown(it) }
         }
         if (rv == null) {
             via = "fragment"
@@ -195,7 +182,7 @@ class BrowseHook : BaseHook {
         }
         if (rv == null) {
             via = "rootScan"
-            rv = srcView?.let { findTargetRecycler(it) }
+            rv = srcView?.let { scanRoot(it) }
         }
         if (rv == null) {
             xlog("advance[$tag]: no RecyclerView (src=${source?.javaClass?.simpleName}," +
@@ -208,73 +195,88 @@ class BrowseHook : BaseHook {
             return
         }
         lastAdvanceAt = now
-        xlog("advance[$tag]: via=$via rv=${rv.javaClass.simpleName} h=${rv.height} pos=${firstVisible(rv)}")
+        xlog("advance[$tag]: via=$via rv=${rv.javaClass.simpleName} h=${rv.callMethodOrNullAs<Int>("getHeight")} pos=${firstVisible(rv)}")
         swipeUp(rv)
     }
 
-    /** 打印现场：View 链 + 根视图 + 所在 Activity，用于定位到底是哪个页面。 */
-    private fun dumpScene(v: View, tag: String) {
-        if (sceneLogged) return
-        sceneLogged = true
-        runCatching {
-            val sb = StringBuilder()
-            var p: ViewParent? = v.parent
-            var i = 0
-            while (p != null && i++ < 12) {
-                sb.append(p.javaClass.name)
-                if (i < 12 && p.parent != null) sb.append(" <- ")
-                p = p.parent
-            }
-            xlog("scene[$tag] chain: $sb")
-            val root = v.rootView
-            xlog("scene[$tag] root=${root.javaClass.name} children=" +
-                ((root as? ViewGroup)?.childCount ?: -1))
-            var ctx: android.content.Context? = v.context
-            var guard = 0
-            while (ctx is android.content.ContextWrapper && guard++ < 10) {
-                if (ctx is android.app.Activity) break
-                ctx = ctx.baseContext
-            }
-            xlog("scene[$tag] activity=${ctx?.javaClass?.name}")
+    // ------------------------------------------------------------------
+    // 类型判断（不依赖 androidx 类型）
+    // ------------------------------------------------------------------
+
+    /** 沿继承链比对类名，绕开「同名不同 ClassLoader」的问题。 */
+    private fun isRecycler(o: Any?): Boolean {
+        var c: Class<*>? = o?.javaClass ?: return false
+        while (c != null) {
+            if (c.name == "androidx.recyclerview.widget.RecyclerView") return true
+            c = c.superclass
         }
+        return false
     }
 
-    /**
-     * 视频控件未必在 RecyclerView 的子树里（可能挂在独立覆盖层）。
-     * 先向上找祖先；找不到就从根视图向下枚举，取可见且面积最大的那个（视频页列表是全屏）。
-     */
-    private fun findTargetRecycler(v: View): RecyclerView? {
-        findAncestorRecycler(v)?.let { return it }
-        val candidates = ArrayList<RecyclerView>()
-        runCatching { collectRecyclers(v.rootView, candidates) }
-        val usable = candidates.filter {
-            it.isShown && it.height > 0 && (it.adapter?.itemCount ?: 0) > 1
-        }
-        if (usable.isEmpty()) return null
-        xlog("rv candidates=${usable.size} sizes=" + usable.joinToString { "${it.width}x${it.height}" })
-        return usable.maxByOrNull { it.width.toLong() * it.height }
-    }
+    private fun isShown(o: Any?): Boolean =
+        runCatching { o?.callMethodOrNullAs<Boolean>("isShown") == true }.getOrDefault(false)
 
-    private fun collectRecyclers(v: View, out: MutableList<RecyclerView>) {
-        if (v is RecyclerView) out.add(v)
-        if (v is ViewGroup) {
-            for (i in 0 until v.childCount) collectRecyclers(v.getChildAt(i), out)
-        }
-    }
+    private fun isResumed(o: Any?): Boolean =
+        runCatching { o?.callMethodOrNullAs<Boolean>("isResumed") == true }.getOrDefault(false)
 
-    private fun findAncestorRecycler(v: View): RecyclerView? {
+    // ------------------------------------------------------------------
+    // 查找列表
+    // ------------------------------------------------------------------
+
+    private fun findAncestorRecycler(v: View): Any? {
         var p: ViewParent? = v.parent
         var guard = 0
-        while (p != null && guard++ < 50) {
-            if (p is RecyclerView) return p
+        while (p != null && guard++ < 60) {
+            if (isRecycler(p)) return p
             p = p.parent
         }
         return null
     }
 
-    private fun swipeUp(rv: RecyclerView) {
-        val w = rv.width
-        val h = rv.height
+    private fun findRecyclerView(frag: Any): Any? {
+        if (!isResumed(frag)) return null
+        (frag.callMethodOrNull("l") as? Any)?.let { if (isRecycler(it)) return it }
+        (frag.callMethodOrNull("getMainRecyclerView"))?.let { if (isRecycler(it)) return it }
+        var c: Class<*>? = frag.javaClass
+        while (c != null && c != Any::class.java) {
+            val hit = runCatching {
+                c!!.declaredFields.firstOrNull { it.name == "f" }?.let { f ->
+                    f.isAccessible = true
+                    f.get(frag)
+                }
+            }.getOrNull()
+            if (isRecycler(hit)) return hit
+            c = c.superclass
+        }
+        (frag.callMethodOrNull("getView") as? View)?.let { return scanTree(it) }
+        return null
+    }
+
+    private fun scanRoot(v: View): Any? = scanTree(v.rootView)
+
+    private fun scanTree(v: View): Any? {
+        if (isRecycler(v) && isShown(v)) return v
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) {
+                scanTree(v.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun firstVisible(rv: Any): Int {
+        val lm = rv.callMethodOrNull("getLayoutManager") ?: return -1
+        return runCatching { lm.callMethodOrNullAs<Int>("findFirstVisibleItemPosition") }.getOrNull() ?: -1
+    }
+
+    // ------------------------------------------------------------------
+    // 手势
+    // ------------------------------------------------------------------
+
+    private fun swipeUp(rv: Any) {
+        val v = rv as? View ?: return   // View 是启动类，跨 ClassLoader 也通用
+        val w = v.width
+        val h = v.height
         if (w <= 0 || h <= 0) {
             xlog("swipe: invalid size ${w}x$h")
             return
@@ -291,57 +293,42 @@ class BrowseHook : BaseHook {
             MotionEvent.obtain(t0, t0 + 120, MotionEvent.ACTION_UP, x, yEnd, 0)
         )
         events.forEach { e ->
-            runCatching { rv.dispatchTouchEvent(e) }
+            runCatching { v.dispatchTouchEvent(e) }
             e.recycle()
         }
         xlog("swipe injected before=$before")
-        rv.postDelayed({
+        v.postDelayed({
             val after = firstVisible(rv)
             if (after == before) {
                 xlog("swipe ineffective, fallback scrollBy")
-                runCatching { rv.smoothScrollBy(0, h) }
+                runCatching { rv.callMethodOrNull("smoothScrollBy", 0, h) }
             } else {
                 xlog("swipe ok after=$after")
             }
         }, 700L)
     }
 
-    private fun firstVisible(rv: RecyclerView): Int {
-        val lm = rv.layoutManager as? LinearLayoutManager ?: return -1
-        return runCatching { lm.findFirstVisibleItemPosition() }.getOrDefault(-1)
-    }
-
-    // ------------------------------------------------------------------
-    // 辅助
-    // ------------------------------------------------------------------
-
-    private fun findRecyclerView(frag: Any): RecyclerView? {
-        (frag.callMethodOrNull("l") as? RecyclerView)?.let { return it }
-        (frag.callMethodOrNull("getMainRecyclerView") as? RecyclerView)?.let { return it }
-        var c: Class<*>? = frag.javaClass
-        while (c != null && c != Any::class.java) {
-            val hit = runCatching {
-                c!!.declaredFields.firstOrNull { it.name == "f" }?.let { f ->
-                    f.isAccessible = true
-                    f.get(frag) as? RecyclerView
-                }
-            }.getOrNull()
-            if (hit != null) return hit
-            c = c.superclass
-        }
-        (frag.callMethodOrNull("getView") as? ViewGroup)?.let { return findRecyclerIn(it) }
-        return null
-    }
-
-    private fun findRecyclerIn(v: View): RecyclerView? {
-        if (v is RecyclerView) return v
-        if (v is ViewGroup) {
-            for (i in 0 until v.childCount) {
-                findRecyclerIn(v.getChildAt(i))?.let { return it }
+    private fun dumpScene(v: View, tag: String) {
+        if (sceneLogged) return
+        sceneLogged = true
+        runCatching {
+            val sb = StringBuilder()
+            var p: ViewParent? = v.parent
+            var i = 0
+            while (p != null && i++ < 12) {
+                sb.append(p.javaClass.name)
+                if (p.parent != null) sb.append(" <- ")
+                p = p.parent
             }
+            xlog("scene[$tag] chain: $sb")
+            val root = v.rootView
+            xlog("scene[$tag] root=${root.javaClass.name}")
         }
-        return null
     }
+
+    // ------------------------------------------------------------------
+    // 推荐页辅助
+    // ------------------------------------------------------------------
 
     private fun refreshViewPager(owner: Any) {
         runCatching {
@@ -374,7 +361,6 @@ class BrowseHook : BaseHook {
         vp.callMethodOrNull("setCurrentItem", current + 1)
     }
 
-    /** 双 sink 日志：logcat + Xposed 模块日志，避免单一通道丢失。 */
     private fun xlog(msg: String) {
         Log.i("BrowseHook $msg")
         runCatching { XposedBridge.log("PPX BrowseHook: $msg") }
@@ -383,9 +369,9 @@ class BrowseHook : BaseHook {
     companion object {
         var viewPager: Any? = null
         var isAuto = true
-        private var activeImmersive: Fragment? = null
+        private var activeImmersive: Any? = null
         private var currentVideoView: Any? = null
-        private var feedRecycler: RecyclerView? = null
+        private var feedRecycler: Any? = null
         private var loggedRecycler = false
         private var sceneLogged = false
         private var lastAdvanceAt = 0L
