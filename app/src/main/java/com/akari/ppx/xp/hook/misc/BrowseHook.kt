@@ -179,14 +179,24 @@ class BrowseHook : BaseHook {
      */
     private fun advanceFrom(source: Any?, tag: String) {
         val srcView = source as? View
-        if (srcView != null) {
-            dumpScene(srcView, tag)
-            if (tryPagerAdvance(srcView)) return
+        if (srcView != null) dumpScene(srcView, tag)
+
+        // 纵向列表优先。画面里本来就是 GestureObservableRecyclerView（继承 RecyclerView），
+        // 不能先判 ViewPager —— 外层 DisableGutterViewPager 是横向翻页的，先命中它就会横向切（0.0.24 的错）。
+        var via = "ancestor"
+        var rv = srcView?.let { findAncestorRecycler(it) }
+        if (rv == null) {
+            via = "feed"
+            rv = feedRecycler?.takeIf { it.isShown }
         }
-        val rv = srcView?.let { findAncestorRecycler(it) }
-            ?: feedRecycler?.takeIf { it.isShown }
-            ?: activeImmersive?.let { findRecyclerView(it) }
-            ?: srcView?.let { findTargetRecycler(it) }
+        if (rv == null) {
+            via = "fragment"
+            rv = activeImmersive?.let { findRecyclerView(it) }
+        }
+        if (rv == null) {
+            via = "rootScan"
+            rv = srcView?.let { findTargetRecycler(it) }
+        }
         if (rv == null) {
             xlog("advance[$tag]: no RecyclerView (src=${source?.javaClass?.simpleName}," +
                 "feed=${feedRecycler != null}, frag=${activeImmersive != null})")
@@ -198,7 +208,7 @@ class BrowseHook : BaseHook {
             return
         }
         lastAdvanceAt = now
-        xlog("advance[$tag]: rv h=${rv.height} pos=${firstVisible(rv)}")
+        xlog("advance[$tag]: via=$via rv=${rv.javaClass.simpleName} h=${rv.height} pos=${firstVisible(rv)}")
         swipeUp(rv)
     }
 
@@ -227,36 +237,6 @@ class BrowseHook : BaseHook {
             }
             xlog("scene[$tag] activity=${ctx?.javaClass?.name}")
         }
-    }
-
-    /** View 链里有 ViewPager 就直接翻页（详情页类页面常用）。 */
-    private fun tryPagerAdvance(v: View): Boolean {
-        var p: ViewParent? = v.parent
-        var i = 0
-        while (p != null && i++ < 15) {
-            val name = p.javaClass.name
-            if (name.contains("ViewPager")) {
-                val cur = runCatching {
-                    p!!.javaClass.getMethod("getCurrentItem").invoke(p) as Int
-                }.getOrNull()
-                if (cur != null) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastAdvanceAt >= 1_500L) {
-                        lastAdvanceAt = now
-                        runCatching {
-                            p!!.javaClass.getMethod("setCurrentItem", Int::class.javaPrimitiveType)
-                                .invoke(p, cur + 1)
-                        }
-                        xlog("pager advance $name $cur -> ${cur + 1}")
-                    } else {
-                        xlog("pager advance debounced")
-                    }
-                    return true
-                }
-            }
-            p = p.parent
-        }
-        return false
     }
 
     /**
