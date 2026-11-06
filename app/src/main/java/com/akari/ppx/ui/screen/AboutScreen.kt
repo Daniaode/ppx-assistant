@@ -42,16 +42,6 @@ fun AboutScreen(isActive: Boolean, checkingUpdate: Boolean, onCheckUpdate: () ->
         }
         Card(elevation = 0.dp) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Text("已知问题", fontWeight = FontWeight.Bold)
-                Text(
-                    "视频页自动切换暂不可用：当前仍需手动上滑切换下一条，" +
-                        "「播放完自动跳转」尚未修复。推荐页自动刷视频不受影响。",
-                    style = MaterialTheme.typography.body2
-                )
-            }
-        }
-        Card(elevation = 0.dp) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(
                     "严禁商业售卖",
                     fontWeight = FontWeight.Bold,
