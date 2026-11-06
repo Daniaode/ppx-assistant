@@ -189,6 +189,12 @@ class BrowseHook : BaseHook {
                 "feed=${feedRecycler != null}, frag=${activeImmersive != null})")
             return
         }
+        // 只对「视频页」生效：d() 在任何播视频的页面都会触发，
+        // 推荐页/详情页也有列表，不校验会把上下滑动应用到别的页。
+        if (!isImmersiveList(rv)) {
+            xlog("advance[$tag]: skip non-immersive page (rv=${rv.javaClass.simpleName})")
+            return
+        }
         val now = System.currentTimeMillis()
         if (now - lastAdvanceAt < 1_500L) {
             xlog("advance[$tag]: debounced")
@@ -262,6 +268,25 @@ class BrowseHook : BaseHook {
             }
         }
         return null
+    }
+
+    /**
+     * 判断列表是否属于「视频页」（沉浸式信息流）。
+     * 视频页祖先链含 ImmersiveGuideGestureLayout / DisableGutterViewPager；
+     * 推荐页/详情页含 SwipeControlledViewPager / FlingStickyNewLayout。
+     * 两者必须区分开，否则推荐页也会被自动滑动。
+     */
+    private fun isImmersiveList(rv: Any): Boolean {
+        var p: ViewParent? = (rv as? View)?.parent
+        var guard = 0
+        var immersive = false
+        while (p != null && guard++ < 30) {
+            val n = p.javaClass.name
+            if (n.contains("SwipeControlledViewPager") || n.contains("FlingStickyNewLayout")) return false
+            if (n.contains("Immersive")) immersive = true
+            p = p.parent
+        }
+        return immersive
     }
 
     private fun firstVisible(rv: Any): Int {
