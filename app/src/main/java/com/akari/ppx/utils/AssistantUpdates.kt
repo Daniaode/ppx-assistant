@@ -4,7 +4,12 @@ import com.google.gson.JsonParser
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class AssistantRelease(val version: String, val notes: String, val url: String)
+data class AssistantRelease(
+    val version: String,
+    val notes: String,
+    val url: String,
+    val downloadUrl: String? = null
+)
 
 object AssistantUpdates {
     // LSPosed 官方模块仓库的 Release 是更新来源。
@@ -52,8 +57,17 @@ object AssistantUpdates {
             val name = json.get("name")?.takeUnless { it.isJsonNull }?.asString
             val version = releaseVersion(tag, name) ?: tag
             val body = json.get("body")?.takeUnless { it.isJsonNull }?.asString.orEmpty()
-            return AssistantRelease(version, body.ifBlank { "此版本暂无更新说明。" },
-                "$RELEASES/tag/${java.net.URLEncoder.encode(tag, "UTF-8")}")
+            // 优先取 release 里的 apk 资产直链，用于内置下载
+            val assetUrl = json.getAsJsonArray("assets")?.asSequence()
+                ?.mapNotNull { it.asJsonObject }
+                ?.firstOrNull { it.get("name")?.asString?.endsWith(".apk", true) == true }
+                ?.get("browser_download_url")?.asString
+            return AssistantRelease(
+                version,
+                body.ifBlank { "此版本暂无更新说明。" },
+                "$RELEASES/tag/${java.net.URLEncoder.encode(tag, "UTF-8")}",
+                assetUrl
+            )
         } finally {
             connection.disconnect()
         }

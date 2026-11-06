@@ -23,7 +23,15 @@ import com.akari.ppx.xp.hook.SwitchHook
  * only place that creates a tab view, and it receives the spec tag (args[1])
  * plus the resolved label (args[2]).
  */
+/**
+ * 隐藏底栏 Tab。
+ *
+ * 只在创建时设 GONE 不够：打开评论再返回、或切任务回来时，宿主会重新
+ * setVisibility(VISIBLE) 把隐藏状态覆盖掉（实测现象：底栏又出现，切一次任务又好了）。
+ * 因此把目标视图记下来，并全局压 setVisibility ，保证它一直是 GONE。
+ */
 private fun hideBottomTabs(vararg tags: String) {
+    ensureVisibilityGuard()
     "com.sup.android.base.main.bottom.b".findClass(cl).hookAfterMethod(
         "a",
         android.content.Context::class.java,
@@ -34,10 +42,41 @@ private fun hideBottomTabs(vararg tags: String) {
         val tag = param.args[1]?.toString()
         val label = param.args[2]?.toString()
         if (tag in tags || label in tags) {
-            (param.result as? View)?.visibility = View.GONE
+            val view = param.result as? View ?: return@hookAfterMethod
+            hiddenTabViews.add(view)
+            view.visibility = View.GONE
         }
     }
 }
+
+/** 被要求隐藏的 Tab 视图（弱引用，避免泄漏）。 */
+private val hiddenTabViews: MutableSet<View> =
+    java.util.Collections.newSetFromMap(java.util.WeakHashMap<View, Boolean>())
+
+@Volatile
+private var visibilityGuardInstalled = false
+
+/** 全局兼底：这些视图一旦被重新显示，立即重新隐藏。 */
+private fun ensureVisibilityGuard() {
+    if (visibilityGuardInstalled) return
+    synchronized(HomeEntryHooksGuard) {
+        if (visibilityGuardInstalled) return
+        runCatching {
+            "android.view.View".findClass(cl).hookBeforeMethod(
+                "setVisibility",
+                Int::class.javaPrimitiveType
+            ) { param ->
+                val view = param.thisObject as? View ?: return@hookBeforeMethod
+                if (param.args[0] as? Int == View.VISIBLE && hiddenTabViews.contains(view)) {
+                    param.args[0] = View.GONE
+                }
+            }
+            visibilityGuardInstalled = true
+        }
+    }
+}
+
+private val HomeEntryHooksGuard = Any()
 
 class TopicTabHook : SwitchHook("hide_bottom_topic_tab") {
     // Slot two is "discovery" (话题) or "task" (福利中心) depending on the host's
