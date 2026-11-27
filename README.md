@@ -1,6 +1,6 @@
 # 皮友助手
 
-皮皮虾（`com.sup.android.superb`）的 LSPosed 增强模块，当前重点适配 **皮皮虾 6.6.1**。
+皮皮虾（`com.sup.android.superb`）的 LSPosed 增强模块，当前重点适配 **皮皮虾 6.6.5**（同时兼容 6.6.1 / 6.6.0 / 6.5.x / 6.2.0）。
 
 - **维护者**：Daniaode（本项目由我接手维护）
 - **项目仓库**：<https://github.com/Daniaode/ppx-assistant>
@@ -40,7 +40,7 @@
 
 | 项目 | 说明 |
 | --- | --- |
-| 宿主版本 | 皮皮虾 6.6.1（同时兼容 6.6.0 / 6.5.x 的大部分功能） |
+| 宿主版本 | 皮皮虾 **6.6.5**（同时兼容 6.6.1 / 6.6.0 / 6.5.5 / 6.5.0 / 6.2.0） |
 | 模块包名 | `io.github.vs2pk0.piyou` |
 | 作用域 | `com.sup.android.superb` |
 | 框架 | LSPosed 1.9.x（legacy Xposed API 93）／ LSPosed 2.x（modern libxposed API 101） |

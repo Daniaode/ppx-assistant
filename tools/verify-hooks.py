@@ -83,6 +83,15 @@ def parse_dump(path, index):
     flush()
 
 
+def params_of(desc: str) -> str:
+    """只取参数部分，忽略返回类型。
+    目标清单里提取器统一写成 ')V'，而实际方法可能返回 View 等，
+    直接比完整签名会造成大量假阴性。
+    """
+    i = desc.rfind(")")
+    return desc[:i + 1] if i >= 0 else desc
+
+
 def classify(record):
     if record is None:
         return "missing"
@@ -134,7 +143,7 @@ def main():
         else:
             candidates = [
                 (d, rec) for (n, d), rec in methods.items()
-                if n == method and (desc == "*" or d == desc)
+                if n == method and (desc == "*" or params_of(d) == params_of(desc))
             ]
             if not candidates:
                 status = "missing-method"
