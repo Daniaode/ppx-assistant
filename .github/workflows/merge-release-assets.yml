@@ -1,0 +1,115 @@
+name: merge-release-assets
+
+# 把分片资产合并成一个完整文件，再作为新资产上传回同一个 Release。
+#
+# 背景：本地跨境链路上传 100MB+ 单文件时会被中途重置，只能分片上传。
+# GitHub 自己的 runner 访问存储是内网级别，合并与上传都很稳定。
+#
+# 用法：
+#   gh workflow run merge-release-assets.yml \
+#     -f tag=v1.1.0 \
+#     -f parts_prefix=gh.part \
+#     -f merged_name=Piyou-Integrated-1.1.0-665.apk \
+#     -f md5=2f34ad2edf19caa6c32293a82d96e466 \
+#     -f delete_parts=true
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        default: v1.1.0
+      parts_prefix:
+        description: 分片资产名前缀（按名称排序后拼接）
+        required: true
+        default: gh.part
+      merged_name:
+        description: 合并后的资产名
+        required: true
+        default: Piyou-Integrated-1.1.0-665.apk
+      md5:
+        description: 期望 MD5（留空跳过校验）
+        required: false
+        default: ""
+      delete_parts:
+        description: 合并成功后删除分片
+        required: true
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载分片
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          PREFIX: ${{ inputs.parts_prefix }}
+        run: |
+          set -euo pipefail
+          mkdir -p parts
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "${PREFIX}*" --dir parts
+          echo "分片列表："
+          ls -l parts
+
+      - name: 合并
+        env:
+          PREFIX: ${{ inputs.parts_prefix }}
+          MERGED: ${{ inputs.merged_name }}
+        run: |
+          set -euo pipefail
+          # 按名称排序后拼接，保证顺序正确
+          mapfile -t FILES < <(ls parts/"${PREFIX}"* | sort)
+          echo "拼接顺序：${FILES[*]}"
+          cat "${FILES[@]}" > "$MERGED"
+          ls -l "$MERGED"
+
+      - name: 校验 MD5 与 APK 结构
+        if: ${{ inputs.md5 != '' }}
+        env:
+          EXPECT: ${{ inputs.md5 }}
+          MERGED: ${{ inputs.merged_name }}
+        run: |
+          set -euo pipefail
+          ACTUAL=$(md5sum "$MERGED" | cut -d' ' -f1)
+          echo "期望: $EXPECT"
+          echo "实际: $ACTUAL"
+          [ "$ACTUAL" = "$EXPECT" ] || { echo "::error::MD5 不匹配"; exit 1; }
+          # 校验是不是合法 APK（zip 头）
+          python3 - "$MERGED" <<'PY'
+          import sys, zipfile
+          p = sys.argv[1]
+          with zipfile.ZipFile(p) as z:
+              names = z.namelist()
+          assert "AndroidManifest.xml" in names, "缺少 AndroidManifest.xml"
+          print("APK 结构正常，条目数:", len(names))
+          PY
+
+      - name: 上传合并后的资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          MERGED: ${{ inputs.merged_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "$MERGED" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "已上传 $MERGED"
+
+      - name: 删除分片
+        if: ${{ inputs.delete_parts == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          PREFIX: ${{ inputs.parts_prefix }}
+        run: |
+          set -euo pipefail
+          for f in parts/"${PREFIX}"*; do
+            name=$(basename "$f")
+            echo "删除分片资产: $name"
+            gh release delete-asset "$TAG" "$name" --repo "$GITHUB_REPOSITORY" --yes || true
+          done
