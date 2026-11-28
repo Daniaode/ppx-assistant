@@ -13,8 +13,8 @@ data class AssistantRelease(
 
 object AssistantUpdates {
     // LSPosed 官方模块仓库的 Release 是更新来源。
-    private const val API = "https://api.github.com/repos/Daniaode/ppx-assistant/releases/latest"
-    const val RELEASES = "https://github.com/Daniaode/ppx-assistant/releases"
+    private const val API = "https://api.github.com/repos/Daniaode/piyou-assistant/releases/latest"
+    const val RELEASES = "https://github.com/Daniaode/piyou-assistant/releases"
 
     fun isNewer(candidate: String, current: String): Boolean {
         fun parts(value: String): List<java.math.BigInteger>? {

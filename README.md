@@ -3,9 +3,9 @@
 皮皮虾（`com.sup.android.superb`）的 LSPosed 增强模块，当前重点适配 **皮皮虾 6.6.5**（同时兼容 6.6.1 / 6.6.0 / 6.5.x / 6.2.0）。
 
 - **维护者**：Daniaode（本项目由我接手维护）
-- **项目仓库**：<https://github.com/Daniaode/ppx-assistant>
-- **问题反馈**：<https://github.com/Daniaode/ppx-assistant/issues>
-- **下载 / 更新**：<https://github.com/Daniaode/ppx-assistant/releases>
+- **项目仓库**：<https://github.com/Daniaode/piyou-assistant>
+- **问题反馈**：<https://github.com/Daniaode/piyou-assistant/issues>
+- **下载 / 更新**：<https://github.com/Daniaode/piyou-assistant/releases>
 - **许可证**：GPL-3.0
 
 > 本项目基于社区开源项目继续维护，保留原有功能，并在此基础上做 6.6.x 适配与新增能力。原作者与前期维护者信息见文末「致谢」。
@@ -20,7 +20,7 @@
 
 - 禁止任何形式的商业售卖、付费代装、捆绑出售或二次倒卖。
 - 如果你是**花钱购买的**，请立即申请退款，并向平台举报卖家。
-- 官方唯一发布地址：<https://github.com/Daniaode/ppx-assistant>
+- 官方唯一发布地址：<https://github.com/Daniaode/piyou-assistant>
 - 除本仓库与本仓库 Releases 之外，任何渠道的「付费版本」均与本项目无关。
 
 如果你看到有人在卖这个模块，请在此仓库提交 Issue 告知。
@@ -39,7 +39,7 @@
 
 包名保持不变，**可直接覆盖安装升级**，设置不会丢失。
 
-验证记录：[皮皮虾 6.6.5 适配记录](docs/functional-test-6.6.5.md)
+验证记录：[皮皮虾 6.6.5 适配记录](docs/functional-test-6.6.5.md)　发布流程：[docs/RELEASE.md](docs/RELEASE.md)
 
 ---
 
@@ -99,7 +99,7 @@ Hook `MoneyExcitingService`：
 - 签到弹窗结束回调 `notifySignInDialogFinish` 后补一次检查。
 
 ### 6. 检查更新指向本项目
-模块「关于与支持」页的检查更新改用本项目 GitHub Releases（`api.github.com/repos/Daniaode/ppx-assistant/releases/latest`），版本号从 tag 解析，比较后提示新版本。
+模块「关于与支持」页的检查更新改用本项目 GitHub Releases（`api.github.com/repos/Daniaode/piyou-assistant/releases/latest`），版本号从 tag 解析，比较后提示新版本。
 
 ---
 
